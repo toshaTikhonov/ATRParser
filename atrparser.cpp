@@ -495,188 +495,219 @@ QString ATRParser::cardTypeToString(CardType type)
 QString ATRParser::getFormattedOutput()
 {
     QString output;
-    const int boxWidth = 76;
-
-    // Вспомогательная функция для создания строки с выравниванием
-    auto makeLine = [boxWidth](const QString &label, const QString &value) -> QString {
-        QString line = "║ " + label + ": ";
-        int padding = boxWidth - 4 - line.length() - value.length();
-        if (padding < 0) padding = 0;
-        line += value + QString(padding, ' ') + " ║\n";
-        return line;
-    };
-
-    // Заголовок
-    output += QString("╔%1╗\n").arg(QString().fill(QChar(0x2550), boxWidth - 2));
-    QString title = m_atrData.cardName;
-    int titlePadding = (boxWidth - 2 - title.length()) / 2;
-    output += QString("║%1%2%3║\n")
-        .arg(QString(titlePadding, ' '))
-        .arg(title)
-        .arg(QString(boxWidth - 2 - titlePadding - title.length(), ' '));
-    output += QString("╠%1╣\n").arg(QString().fill(QChar(0x2550), boxWidth - 2));
-
+    
+    // Определяем цвет в зависимости от типа карты
+    QString cardColor = "#2196F3"; // Синий по умолчанию
+    if (m_atrData.cardType == CardType::BankCard_EMV) {
+        cardColor = "#4CAF50"; // Зеленый для банковских
+    } else if (m_atrData.cardType >= CardType::Mifare_Classic && 
+               m_atrData.cardType <= CardType::Mifare_Plus) {
+        cardColor = "#FF9800"; // Оранжевый для Mifare
+    }
+    
+    // Заголовок с названием карты
+    output += QString("<div style='background: linear-gradient(90deg, %1, %2); padding: 15px; margin: 10px 0; border-radius: 8px;'>")
+        .arg(cardColor)
+        .arg(cardColor + "CC");
+    output += QString("<h2 style='color: white; margin: 0; text-align: center;'>🔖 %1</h2>")
+        .arg(m_atrData.cardName);
+    output += "</div>";
+    
     // Основная информация
-    output += makeLine("Тип", cardTypeToString(m_atrData.cardType));
-    output += makeLine("Производитель", m_atrData.manufacturer);
-
-    output += QString("╠%1╣\n").arg(QString().fill(QChar(0x2550), boxWidth - 2));
-
+    output += "<div style='background: #f5f5f5; padding: 12px; margin: 10px 0; border-left: 4px solid #2196F3;'>";
+    output += QString("<b style='color: #1976D2;'>Тип карты:</b> <span style='color: #424242;'>%1</span><br>")
+        .arg(cardTypeToString(m_atrData.cardType));
+    output += QString("<b style='color: #1976D2;'>Производитель:</b> <span style='color: #424242;'>%1</span>")
+        .arg(m_atrData.manufacturer);
+    output += "</div>";
+    
     // ATR в hex
+    output += "<div style='margin: 15px 0;'>";
+    output += "<h3 style='color: #1976D2; border-bottom: 2px solid #2196F3; padding-bottom: 5px;'>📋 ATR (HEX)</h3>";
+    output += "<div style='background: #263238; padding: 12px; border-radius: 4px; font-family: \"Courier New\", monospace;'>";
+    
     QString atrHex;
     for (int i = 0; i < m_atrData.rawAtr.size(); i++) {
-        if (i > 0 && i % 16 == 0) atrHex += "\n";
+        if (i > 0 && i % 16 == 0) atrHex += "<br>";
         else if (i > 0) atrHex += " ";
-        atrHex += QString("%1").arg(m_atrData.rawAtr[i], 2, 16, QChar('0')).toUpper();
+        
+        // Подсветка разных частей ATR
+        QString byteColor = "#00E676"; // Зеленый по умолчанию
+        if (i == 0) byteColor = "#FF5252"; // TS - красный
+        else if (i == 1) byteColor = "#FFD740"; // T0 - желтый
+        else if (i >= 2 && i < 2 + m_atrData.interfaceBytes.size()) byteColor = "#00B0FF"; // Interface - голубой
+        
+        atrHex += QString("<span style='color: %1;'>%2</span>")
+            .arg(byteColor)
+            .arg(QString("%1").arg(m_atrData.rawAtr[i], 2, 16, QChar('0')).toUpper());
     }
-
-    output += "║ ATR (HEX):                                                           ║\n";
-    QStringList atrLines = atrHex.split('\n');
-    for (const QString &line : atrLines) {
-        output += QString("║  %1%2║\n")
-            .arg(line)
-            .arg(QString(boxWidth - 4 - line.length(), ' '));
-    }
-
-    output += QString("╠%1╣\n").arg(QString().fill(QChar(0x2550), boxWidth - 2));
-    output += "║ ДЕТАЛЬНЫЙ РАЗБОР ATR:                                                ║\n";
-    output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-
+    output += atrHex;
+    output += "</div></div>";
+    
+    // Детальный разбор
+    output += "<h3 style='color: #1976D2; border-bottom: 2px solid #2196F3; padding-bottom: 5px; margin-top: 20px;'>🔍 ДЕТАЛЬНЫЙ РАЗБОР ATR</h3>";
+    
     // TS байт
     QString tsDescr = (m_atrData.ts == 0x3B) ? "Прямая конвенция" : "Обратная конвенция";
-    output += QString("║  TS = 0x%1 (%2)%3║\n")
+    output += "<div style='background: #FFEBEE; padding: 10px; margin: 8px 0; border-left: 4px solid #F44336;'>";
+    output += QString("<b style='color: #C62828;'>TS</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%1</code> <span style='color: #666;'>(%2)</span>")
         .arg(m_atrData.ts, 2, 16, QChar('0')).toUpper()
-        .arg(tsDescr)
-        .arg(QString(boxWidth - 17 - tsDescr.length(), ' '));
-
+        .arg(tsDescr);
+    output += "</div>";
+    
     // T0 байт
     int histCount = m_atrData.t0 & 0x0F;
     bool hasTA = (m_atrData.t0 & 0x10) != 0;
     bool hasTB = (m_atrData.t0 & 0x20) != 0;
     bool hasTC = (m_atrData.t0 & 0x40) != 0;
     bool hasTD = (m_atrData.t0 & 0x80) != 0;
-
-    output += QString("║  T0 = 0x%1 (К-во ист.байт: %2, TA:%3 TB:%4 TC:%5 TD:%6)%7║\n")
-        .arg(m_atrData.t0, 2, 16, QChar('0')).toUpper()
-        .arg(histCount, 2)
-        .arg(hasTA ? "1" : "0")
-        .arg(hasTB ? "1" : "0")
-        .arg(hasTC ? "1" : "0")
-        .arg(hasTD ? "1" : "0")
-        .arg(QString(boxWidth - 53, ' '));
-
+    
+    output += "<div style='background: #FFF9C4; padding: 10px; margin: 8px 0; border-left: 4px solid #FBC02D;'>";
+    output += QString("<b style='color: #F57F17;'>T0</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%1</code>")
+        .arg(m_atrData.t0, 2, 16, QChar('0')).toUpper();
+    output += QString(" <span style='color: #666;'>→ Исторических байт: <b>%1</b>, TA:<b>%2</b> TB:<b>%3</b> TC:<b>%4</b> TD:<b>%5</b></span>")
+        .arg(histCount)
+        .arg(hasTA ? "✓" : "✗")
+        .arg(hasTB ? "✓" : "✗")
+        .arg(hasTC ? "✓" : "✗")
+        .arg(hasTD ? "✓" : "✗");
+    output += "</div>";
+    
     // Interface bytes TA
     if (!m_atrData.interfaceDetails.ta.values.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        output += "║ INTERFACE BYTES TA (Параметры скорости):                         ║\n";
+        output += "<div style='margin: 15px 0;'>";
+        output += "<h4 style='color: #0288D1; margin: 10px 0;'>⚡ INTERFACE BYTES TA (Параметры скорости)</h4>";
         for (int i = 0; i < m_atrData.interfaceDetails.ta.values.size(); i++) {
             uint8_t ta = m_atrData.interfaceDetails.ta.values[i];
-            QString taLine = QString("  TA%1 = 0x%2").arg(i+1).arg(ta, 2, 16, QChar('0')).toUpper();
-
+            output += "<div style='background: #E1F5FE; padding: 8px; margin: 5px 0; border-left: 3px solid #0288D1;'>";
+            output += QString("<b style='color: #01579B;'>TA%1</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%2</code>")
+                .arg(i+1)
+                .arg(ta, 2, 16, QChar('0')).toUpper();
+            
             if (i == 0) {
-                taLine += QString(" → Fi=%1, Di=%2, Скорость: %3 бит/с")
+                output += QString(" <span style='color: #666;'>→ Fi=<b>%1</b>, Di=<b>%2</b>, Скорость: <b style='color: #0288D1;'>%3 бит/с</b></span>")
                     .arg(m_atrData.interfaceDetails.ta.clockRateConversion)
                     .arg(m_atrData.interfaceDetails.ta.bitRateAdjustment)
                     .arg(m_atrData.interfaceDetails.ta.baudRate);
             }
-            output += QString("║%1%2║\n").arg(taLine).arg(QString(boxWidth - 2 - taLine.length(), ' '));
+            output += "</div>";
         }
+        output += "</div>";
     }
-
+    
     // Interface bytes TB
     if (!m_atrData.interfaceDetails.tb.values.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        output += "║ INTERFACE BYTES TB (Параметры программирования):                 ║\n";
+        output += "<div style='margin: 15px 0;'>";
+        output += "<h4 style='color: #7B1FA2; margin: 10px 0;'>🔋 INTERFACE BYTES TB (Параметры программирования)</h4>";
         for (int i = 0; i < m_atrData.interfaceDetails.tb.values.size(); i++) {
             uint8_t tb = m_atrData.interfaceDetails.tb.values[i];
-            QString tbLine = QString("  TB%1 = 0x%2").arg(i+1).arg(tb, 2, 16, QChar('0')).toUpper();
-
+            output += "<div style='background: #F3E5F5; padding: 8px; margin: 5px 0; border-left: 3px solid #7B1FA2;'>";
+            output += QString("<b style='color: #4A148C;'>TB%1</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%2</code>")
+                .arg(i+1)
+                .arg(tb, 2, 16, QChar('0')).toUpper();
+            
             if (i == 0) {
-                tbLine += QString(" → VPP=%1, IPP=%2")
+                output += QString(" <span style='color: #666;'>→ VPP=<b>%1</b>, IPP=<b>%2</b></span>")
                     .arg(m_atrData.interfaceDetails.tb.programmingVoltage)
                     .arg(m_atrData.interfaceDetails.tb.programmingCurrent);
             }
-            output += QString("║%1%2║\n").arg(tbLine).arg(QString(boxWidth - 2 - tbLine.length(), ' '));
+            output += "</div>";
         }
+        output += "</div>";
     }
-
+    
     // Interface bytes TC
     if (!m_atrData.interfaceDetails.tc.values.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        output += "║ INTERFACE BYTES TC (Временные параметры):                        ║\n";
+        output += "<div style='margin: 15px 0;'>";
+        output += "<h4 style='color: #E64A19; margin: 10px 0;'>⏱️ INTERFACE BYTES TC (Временные параметры)</h4>";
         for (int i = 0; i < m_atrData.interfaceDetails.tc.values.size(); i++) {
             uint8_t tc = m_atrData.interfaceDetails.tc.values[i];
-            QString tcLine = QString("  TC%1 = 0x%2").arg(i+1).arg(tc, 2, 16, QChar('0')).toUpper();
-
+            output += "<div style='background: #FBE9E7; padding: 8px; margin: 5px 0; border-left: 3px solid #E64A19;'>";
+            output += QString("<b style='color: #BF360C;'>TC%1</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%2</code>")
+                .arg(i+1)
+                .arg(tc, 2, 16, QChar('0')).toUpper();
+            
             if (i == 0) {
-                tcLine += QString(" → Guard Time: %1").arg(m_atrData.interfaceDetails.tc.guardTime);
+                output += QString(" <span style='color: #666;'>→ Guard Time: <b>%1</b></span>")
+                    .arg(m_atrData.interfaceDetails.tc.guardTime);
             } else if (i == 1) {
-                tcLine += QString(" → Waiting Time: %1").arg(m_atrData.interfaceDetails.tc.waitingTime);
+                output += QString(" <span style='color: #666;'>→ Waiting Time: <b>%1</b></span>")
+                    .arg(m_atrData.interfaceDetails.tc.waitingTime);
             }
-            output += QString("║%1%2║\n").arg(tcLine).arg(QString(boxWidth - 2 - tcLine.length(), ' '));
+            output += "</div>";
         }
+        output += "</div>";
     }
-
+    
     // Interface bytes TD
     if (!m_atrData.interfaceDetails.td.values.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        output += "║ INTERFACE BYTES TD (Индикаторы протокола):                       ║\n";
+        output += "<div style='margin: 15px 0;'>";
+        output += "<h4 style='color: #00796B; margin: 10px 0;'>🔗 INTERFACE BYTES TD (Индикаторы протокола)</h4>";
         for (int i = 0; i < m_atrData.interfaceDetails.td.values.size(); i++) {
             uint8_t td = m_atrData.interfaceDetails.td.values[i];
-            QString tdLine = QString("  TD%1 = 0x%2 → Протокол: T=%3")
+            output += "<div style='background: #E0F2F1; padding: 8px; margin: 5px 0; border-left: 3px solid #00796B;'>";
+            output += QString("<b style='color: #004D40;'>TD%1</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%2</code>")
                 .arg(i+1)
-                .arg(td, 2, 16, QChar('0')).toUpper()
+                .arg(td, 2, 16, QChar('0')).toUpper();
+            output += QString(" <span style='color: #666;'>→ Протокол: <b style='color: #00796B;'>T=%1</b></span>")
                 .arg(m_atrData.interfaceDetails.td.protocols[i]);
-            output += QString("║%1%2║\n").arg(tdLine).arg(QString(boxWidth - 2 - tdLine.length(), ' '));
+            output += "</div>";
         }
+        output += "</div>";
     }
-
+    
     // Исторические байты
     if (!m_atrData.historicalBytes.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        output += QString("║ ИСТОРИЧЕСКИЕ БАЙТЫ (%1 байт):                                  ║\n")
+        output += "<div style='margin: 15px 0;'>";
+        output += QString("<h4 style='color: #5D4037; margin: 10px 0;'>📚 ИСТОРИЧЕСКИЕ БАЙТЫ (%1 байт)</h4>")
             .arg(m_atrData.historicalBytes.size());
-
+        output += "<div style='background: #EFEBE9; padding: 12px; border-left: 4px solid #5D4037; font-family: \"Courier New\", monospace;'>";
+        
         QString histHex;
         for (int i = 0; i < m_atrData.historicalBytes.size(); i++) {
-            if (i > 0 && i % 16 == 0) histHex += "\n";
+            if (i > 0 && i % 16 == 0) histHex += "<br>";
             else if (i > 0) histHex += " ";
-            histHex += QString("%1").arg(m_atrData.historicalBytes[i], 2, 16, QChar('0')).toUpper();
+            histHex += QString("<span style='color: #3E2723;'>%1</span>")
+                .arg(QString("%1").arg(m_atrData.historicalBytes[i], 2, 16, QChar('0')).toUpper());
         }
-
-        QStringList histLines = histHex.split('\n');
-        for (const QString &line : histLines) {
-            output += QString("║  %1%2║\n")
-                .arg(line)
-                .arg(QString(boxWidth - 4 - line.length(), ' '));
-        }
+        output += histHex;
+        output += "</div></div>";
     }
-
+    
     // TCK (контрольная сумма)
     if (m_atrData.hasTck) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
         bool checksumOk = verifyChecksum();
-        QString checksumStatus = checksumOk ? "✓ Верна" : "✗ Ошибка";
-        QString tckLine = QString("  TCK = 0x%1 (Контрольная сумма: %2)")
-            .arg(m_atrData.tck, 2, 16, QChar('0')).toUpper()
-            .arg(checksumStatus);
-        output += QString("║%1%2║\n").arg(tckLine).arg(QString(boxWidth - 2 - tckLine.length(), ' '));
+        QString bgColor = checksumOk ? "#E8F5E9" : "#FFEBEE";
+        QString borderColor = checksumOk ? "#4CAF50" : "#F44336";
+        QString textColor = checksumOk ? "#2E7D32" : "#C62828";
+        QString statusIcon = checksumOk ? "✅" : "❌";
+        QString statusText = checksumOk ? "Верна" : "Ошибка";
+        
+        output += QString("<div style='background: %1; padding: 10px; margin: 10px 0; border-left: 4px solid %2;'>")
+            .arg(bgColor).arg(borderColor);
+        output += QString("<b style='color: %1;'>TCK</b> = <code style='background: #fff; padding: 2px 6px; border-radius: 3px;'>0x%2</code>")
+            .arg(textColor)
+            .arg(m_atrData.tck, 2, 16, QChar('0')).toUpper();
+        output += QString(" <span style='color: #666;'>→ Контрольная сумма: <b style='color: %1;'>%2 %3</b></span>")
+            .arg(textColor)
+            .arg(statusIcon)
+            .arg(statusText);
+        output += "</div>";
     }
-
+    
     // Поддерживаемые протоколы
     if (!m_atrData.supportedProtocols.isEmpty()) {
-        output += QString("╟%1╢\n").arg(QString().fill(QChar(0x2500), boxWidth - 2));
-        QString protocols;
+        output += "<div style='background: #E3F2FD; padding: 10px; margin: 10px 0; border-left: 4px solid #1976D2;'>";
+        output += "<b style='color: #0D47A1;'>📡 Поддерживаемые протоколы:</b> ";
+        QStringList protoList;
         for (int proto : m_atrData.supportedProtocols) {
-            if (!protocols.isEmpty()) protocols += ", ";
-            protocols += QString("T=%1").arg(proto);
+            protoList << QString("<span style='background: #1976D2; color: white; padding: 2px 8px; border-radius: 3px; margin: 0 2px;'>T=%1</span>")
+                .arg(proto);
         }
-        QString protoLine = QString("  Поддерживаемые протоколы: %1").arg(protocols);
-        output += QString("║%1%2║\n").arg(protoLine).arg(QString(boxWidth - 2 - protoLine.length(), ' '));
+        output += protoList.join(" ");
+        output += "</div>";
     }
-
-    output += QString("╚%1╝\n").arg(QString().fill(QChar(0x2550), boxWidth - 2));
-
+    
     return output;
 }
 
