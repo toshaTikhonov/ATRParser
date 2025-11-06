@@ -787,11 +787,14 @@ QString ATRParser::getFormattedOutput()
                "<span style='color:#222;'>CID=" + QString(m_atrData.ats_supportsCID ? "да" : "нет") +
                ", NAD=" + QString(m_atrData.ats_supportsNAD ? "да" : "нет") + "</span></div>";
 
-        if (m_atrData.ats_hbLen > 0) {
-            output += "<div><span style='color:#777;'>ATS historical bytes:</span> "
+        // ATS Historical bytes (используем уже сохранённые ats_historicalBytes)
+        if (!m_atrData.ats_historicalBytes.isEmpty()) {
+            output += "<div><span style='color:#777;'>ATS Historical bytes:</span> "
+                   "<span style='color:#222;'>" + esc(hex(m_atrData.ats_historicalBytes)) + "</span></div>";
+        } else if (m_atrData.ats_hbLen > 0) {
+            output += "<div><span style='color:#777;'>ATS Historical bytes:</span> "
                    "<span style='color:#222;'>" + esc(QString::number(m_atrData.ats_hbLen)) + " байт</span></div>";
-        }
-    }
+        }    }
 
     output += "</div>"; // wrapper
 
@@ -912,11 +915,12 @@ bool ATRParser::parseATS(const uint8_t* ats, size_t length)
     if (TD_present && idx < TL) {
         ++idx; // зарезервировано или пропустить расширения
     }
-
-    // Остаток — исторические байты ATS (если hbLen > 0)
-    // Убедимся, что места достаточно
+    // Извлечь исторические байты ATS и сохранить в ats_historicalBytes
     if (hbLen > 0 && idx + hbLen <= TL) {
-        // Можно при необходимости сохранить отдельно — пока используем в atsRaw
+        m_atrData.ats_historicalBytes = QVector<uint8_t>(m_atrData.atsRaw.constBegin() + idx,
+                                                         m_atrData.atsRaw.constBegin() + idx + hbLen);
+    } else {
+        m_atrData.ats_historicalBytes.clear();
     }
 
     return true;

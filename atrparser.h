@@ -92,6 +92,7 @@ struct ATRData {
     int ats_sfgi = -1;           // Start-up Frame Guard Integer
     bool ats_supportsCID = false;
     bool ats_supportsNAD = false;
+    QVector<uint8_t> ats_historicalBytes;
 
     ATRData() : ts(0), t0(0), tck(0), hasTck(false), cardType(CardType::Unknown) {}
 };

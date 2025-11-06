@@ -54,23 +54,35 @@ private slots:
     void checkCardPresence();
 
 private:
+    struct ReaderState {
+        QString name;
+        SCARDHANDLE handle = 0;
+        DWORD protocol = 0;
+        bool connected = false;
+        bool cardPresent = false;
+        QVector<uint8_t> lastATR;
+    };
     SCARDCONTEXT m_context;
-    SCARDHANDLE m_card;
-    DWORD m_protocol;
+//    SCARDHANDLE m_card;
+//    DWORD m_protocol;
     
     bool m_initialized;
     bool m_connected;
     QString m_currentReader;
     
     QTimer *m_monitorTimer;
-    bool m_cardPresent;
+//    bool m_cardPresent;
     QVector<uint8_t> m_lastATR;
     
     ATRParser m_parser;
-    
+    // Новое: состояние по всем ридерам
+    QMap<QString, ReaderState> m_readers;
+
     // Вспомогательные методы
     QString getErrorString(LONG result) const;
-    bool checkCardStatus();
+    bool checkCardStatusFor(ReaderState &rs);
+    QVector<uint8_t> getATRFor(const ReaderState &rs);
+
 };
 
 #endif // CARDREADER_H
