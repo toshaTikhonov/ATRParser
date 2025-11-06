@@ -186,6 +186,71 @@ QVector<uint8_t> CardReader::getATR()
     
     return atr;
 }
+QVector<uint8_t> CardReader::getATS()
+{
+    QVector<uint8_t> ats;
+
+    if (!m_connected) {
+        // отсутствие карты не считаем ошибкой, просто пусто
+        return ats;
+    }
+
+    // GET DATA (ATS) команда в PC/SC:
+    // Команда: FF CA 01 00 00 — НЕ правильная для ATS, это UID.
+    // Для ATS используем: FF CA 36 00 00? — тоже неверно.
+    // Корректно: команда ISO7816-4 GET DATA с P1P2=0x9F 0x7F, но через vendor escape не всегда доступна.
+    // На практике для 14443-4 (contactless) часто доступна команда:
+    //   FF CA 01 00 00 — UID; ATS может быть по: FF CA 36 00 00 (NXP) или команда 0xCA GET DATA P1=0x01(P2=0x00) не стандарт.
+    // Универсальный способ через PC/SC: SCardTransmit с APDU: 00 CA 01 00 00 — GET DATA (ATS) по P1=0x01?
+    // В большинстве ридеров ожидаемый тег ATS — 0x36 (proprietary). Надежнее запрос по GET DATA tag 0x36:
+    //   APDU: FF CA 36 00 00
+    // Реализации различаются, поэтому попробуем несколько известных вариантов по очереди.
+
+    const QByteArray apdus[] = {
+  //      QByteArray::fromHex("00CA017F00"), // GET DATA P1=0x01,P2=0x7F (некоторые стекы)
+  //      QByteArray::fromHex("00CA9F7F00"), // GET DATA P1P2=0x9F7F (ATS tag)
+  //      QByteArray::fromHex("FFCA360000"),  // Vendor GET DATA ATS (часто для ACR/NXP)
+        QByteArray::fromHex("FFCA010000")
+    };
+
+    SCARD_IO_REQUEST sendPci;
+    sendPci.dwProtocol = m_protocol;
+    sendPci.cbPciLength = sizeof(SCARD_IO_REQUEST);
+    BYTE recvBuf[258];
+    DWORD recvLen;
+
+    for (const QByteArray &apdu : apdus) {
+        recvLen = sizeof(recvBuf);
+        LONG r = SCardTransmit(m_card, &sendPci,
+                               reinterpret_cast<const BYTE*>(apdu.constData()),
+                               static_cast<DWORD>(apdu.size()),
+                               nullptr, recvBuf, &recvLen);
+        if (r != SCARD_S_SUCCESS) {
+            // другие ошибки игнорируем и пробуем следующий вариант
+            continue;
+        }
+        if (recvLen < 2) continue;
+
+        // Последние 2 байта — SW1 SW2
+        const BYTE sw1 = recvBuf[recvLen - 2];
+        const BYTE sw2 = recvBuf[recvLen - 1];
+        if (!(sw1 == 0x90 && sw2 == 0x00)) {
+            continue;
+        }
+
+        // Данные до SW1SW2 — это ATS
+        const DWORD dataLen = recvLen - 2;
+        if (dataLen == 0) continue;
+
+        ats.reserve(static_cast<int>(dataLen));
+        for (DWORD i = 0; i < dataLen; ++i) {
+            ats.push_back(recvBuf[i]);
+        }
+        break;
+    }
+
+    return ats;
+}
 
 ATRData CardReader::readCardInfo()
 {
@@ -200,7 +265,11 @@ ATRData CardReader::readCardInfo()
         emit readerError("Ошибка парсинга ATR");
         return emptyData;
     }
-    
+    // Попытка прочитать ATS и распарсить (если карта 14443-4)
+    QVector<uint8_t> ats = getATS();
+    if (!ats.isEmpty()) {
+        m_parser.parseATS(ats);
+    }
     return m_parser.getATRData();
 }
 

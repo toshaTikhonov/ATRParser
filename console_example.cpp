@@ -114,6 +114,8 @@ private:
         // Получаем красиво отформатированный вывод из парсера
         ATRParser parser;
         parser.parseATR(cardInfo.rawAtr);
+        if (cardInfo.hasATS)
+            parser.parseATS(cardInfo.atsRaw);
         QString formattedOutput = parser.getFormattedOutput();
 
         out << formattedOutput << Qt::endl;

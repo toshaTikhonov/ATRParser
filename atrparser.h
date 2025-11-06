@@ -77,6 +77,22 @@ struct ATRData {
     QString cardName;
     QString manufacturer;
 
+    // ATS (ISO/IEC 14443-4, T=CL)
+    QVector<uint8_t> atsRaw;     // Полный ATS
+    bool hasATS = false;
+    // Поля, извлеченные из TL/T0/T[A-D]
+    int ats_hbLen = -1;          // длина исторических байтов ATS
+    bool ats_fscPresent = false; // есть ли размер фрейма (FSCI)
+    int ats_fsc = -1;            // байтовый размер кадра (FSC)
+    bool ats_taPresent = false;
+    bool ats_tbPresent = false;
+    bool ats_tcPresent = false;
+    bool ats_tdPresent = false;
+    int ats_fwi = -1;            // Frame Waiting Integer
+    int ats_sfgi = -1;           // Start-up Frame Guard Integer
+    bool ats_supportsCID = false;
+    bool ats_supportsNAD = false;
+
     ATRData() : ts(0), t0(0), tck(0), hasTck(false), cardType(CardType::Unknown) {}
 };
 
@@ -91,7 +107,10 @@ public:
     // Основные методы парсинга
     bool parseATR(const QVector<uint8_t> &atr);
     bool parseATR(const uint8_t *atr, size_t length);
-    
+    // Новый: парсинг ATS (14443-4)
+    bool parseATS(const QVector<uint8_t>& ats);
+    bool parseATS(const uint8_t* ats, size_t length);
+
     // Получение результатов
     ATRData getATRData() const { return m_atrData; }
     CardType getCardType() const { return m_atrData.cardType; }
@@ -131,6 +150,8 @@ private:
     
     // Определение производителя по историческим байтам
     QString detectManufacturer() const;
+    // Вспомогательное форматирование ATS
+    static int atsFSCItoFSC(int fsci);
 };
 
 #endif // ATRPARSER_H

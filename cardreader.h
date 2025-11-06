@@ -39,7 +39,7 @@ public:
     // Работа с картой
     QVector<uint8_t> getATR();
     ATRData readCardInfo();
-    
+    QVector<uint8_t> getATS(); // чтение ATS
     // Автоматическое обнаружение карт
     void startMonitoring(int intervalMs = 1000);
     void stopMonitoring();

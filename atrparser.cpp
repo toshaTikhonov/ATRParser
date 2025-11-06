@@ -1,6 +1,17 @@
 #include "atrparser.h"
 #include <QDebug>
 
+static QString bytesToHex(const QVector<uint8_t>& v)
+{
+    QString s;
+    s.reserve(v.size() * 3);
+    for (int i = 0; i < v.size(); ++i) {
+        s += QString::asprintf("%02X", v[i]);
+        if (i + 1 < v.size()) s += ' ';
+    }
+    return s;
+}
+
 ATRParser::ATRParser(QObject *parent)
     : QObject(parent)
 {
@@ -474,7 +485,42 @@ QString ATRParser::getDetailedInfo()
             .arg(m_atrData.tck, 2, 16, QChar('0'))
             .arg(verifyChecksum() ? "OK" : "ОШИБКА!");
     }
-    
+    // Цвета ANSI (работают в консоли; в GUI игнорируются)
+    auto C = [](const char* code){ return QString::fromLatin1(code); };
+    const QString RESET = C("\x1b[0m");
+    const QString BOLD  = C("\x1b[1m");
+    const QString CYAN  = C("\x1b[36m");
+    const QString GREEN = C("\x1b[32m");
+    const QString YELL  = C("\x1b[33m");
+    const QString MAG   = C("\x1b[35m");
+    const QString BLUE  = C("\x1b[34m");
+    const QString GRAY  = C("\x1b[90m");
+    const QString RED   = C("\x1b[31m");
+
+    // ATS вывод (если есть)
+    if (m_atrData.hasATS) {
+        info += "\n" + BOLD + CYAN + "ATS (ISO/IEC 14443-4)" + RESET + "\n";
+        info += QString("%1ATS:%2 %3\n")
+            .arg(BLUE, RESET, bytesToHex(m_atrData.atsRaw));
+        if (m_atrData.ats_fscPresent) {
+            info += QString("%1FSC:%2 %3 байт\n")
+                .arg(GREEN, RESET)
+                .arg(m_atrData.ats_fsc);
+        }
+        if (m_atrData.ats_fwi >= 0) {
+            info += QString("%1FWI:%2 %3  %1(таймаут≈)%2 302µs * 2^%3\n")
+                .arg(GRAY, RESET).arg(m_atrData.ats_fwi);
+        }
+        if (m_atrData.ats_sfgi >= 0) {
+            info += QString("%1SFGI:%2 %3  %1(guard)≈)%2 302µs * 2^%3\n")
+                .arg(GRAY, RESET).arg(m_atrData.ats_sfgi);
+        }
+        info += QString("%1Features:%2 CID=%3, NAD=%4\n")
+            .arg(GRAY, RESET)
+            .arg(m_atrData.ats_supportsCID ? "yes" : "no")
+            .arg(m_atrData.ats_supportsNAD ? "yes" : "no");
+    }
+
     return info;
 }
 
@@ -707,7 +753,48 @@ QString ATRParser::getFormattedOutput()
         output += protoList.join(" ");
         output += "</div>";
     }
-    
+    auto esc = [](const QString &t){ return t.toHtmlEscaped(); };
+    auto hex = [](const QVector<uint8_t>& v) {
+        QString s; s.reserve(v.size()*3);
+        for (int i=0;i<v.size();++i){ s+=QString::asprintf("%02X", v[i]); if(i+1<v.size()) s+=' '; }
+        return s;
+    };
+
+    // ATS (в том же стиле)
+    if (m_atrData.hasATS && !m_atrData.atsRaw.isEmpty()) {
+        output += "<div style='margin-top:10px; color:#00BCD4; font-weight:600;'>ATS (ISO/IEC 14443-4)</div>";
+        output += "<div><span style='color:#8E24AA;'>ATS:</span> "
+               "<span style='color:#222;'>" + esc(hex(m_atrData.atsRaw)) + "</span></div>";
+
+        if (m_atrData.ats_fscPresent) {
+            output += "<div><span style='color:#43A047;'>FSC:</span> "
+                   "<span style='color:#222;'>" + esc(QString::number(m_atrData.ats_fsc)) + " байт</span></div>";
+        }
+        if (m_atrData.ats_fwi >= 0) {
+            output += "<div><span style='color:#777;'>FWI:</span> "
+                   "<span style='color:#222;'>" + esc(QString::number(m_atrData.ats_fwi)) + "</span>"
+                   "<span style='color:#777;'> &nbsp; (~timeout)≈</span>"
+                   "<span style='color:#222;'>302µs * 2^" + esc(QString::number(m_atrData.ats_fwi)) + "</span></div>";
+        }
+        if (m_atrData.ats_sfgi >= 0) {
+            output += "<div><span style='color:#777;'>SFGI:</span> "
+                   "<span style='color:#222;'>" + esc(QString::number(m_atrData.ats_sfgi)) + "</span>"
+                   "<span style='color:#777;'> &nbsp; (~guard)≈</span>"
+                   "<span style='color:#222;'>302µs * 2^" + esc(QString::number(m_atrData.ats_sfgi)) + "</span></div>";
+        }
+
+        output += "<div><span style='color:#777;'>Опции:</span> "
+               "<span style='color:#222;'>CID=" + QString(m_atrData.ats_supportsCID ? "да" : "нет") +
+               ", NAD=" + QString(m_atrData.ats_supportsNAD ? "да" : "нет") + "</span></div>";
+
+        if (m_atrData.ats_hbLen > 0) {
+            output += "<div><span style='color:#777;'>ATS historical bytes:</span> "
+                   "<span style='color:#222;'>" + esc(QString::number(m_atrData.ats_hbLen)) + " байт</span></div>";
+        }
+    }
+
+    output += "</div>"; // wrapper
+
     return output;
 }
 
@@ -731,4 +818,106 @@ void ATRParser::initKnownATRs()
     // Mifare Ultralight
     m_knownATRs["3B 8F 80 01 80 4F 0C A0 00 00 03 06 03 00 03 00 00 00 00 68"] =
         qMakePair(CardType::Mifare_Ultralight, "Mifare Ultralight");
+}
+int ATRParser::atsFSCItoFSC(int fsci)
+{
+    // ISO/IEC 14443-4: FSCI (0..8,9..C..) → FSC (байт)
+    // Наиболее распространенные значения:
+    // 0:16, 1:24, 2:32, 3:40, 4:48, 5:64, 6:96, 7:128, 8:256
+    static const int map[] = {16,24,32,40,48,64,96,128,256};
+    if (fsci >= 0 && fsci <= 8) return map[fsci];
+    return -1;
+}
+
+bool ATRParser::parseATS(const QVector<uint8_t>& ats)
+{
+    return parseATS(ats.data(), static_cast<size_t>(ats.size()));
+}
+
+bool ATRParser::parseATS(const uint8_t* ats, size_t length)
+{
+    m_atrData.hasATS = false;
+    m_atrData.atsRaw.clear();
+    m_atrData.ats_hbLen = -1;
+    m_atrData.ats_fscPresent = false;
+    m_atrData.ats_fsc = -1;
+    m_atrData.ats_taPresent = false;
+    m_atrData.ats_tbPresent = false;
+    m_atrData.ats_tcPresent = false;
+    m_atrData.ats_tdPresent = false;
+    m_atrData.ats_fwi = -1;
+    m_atrData.ats_sfgi = -1;
+    m_atrData.ats_supportsCID = false;
+    m_atrData.ats_supportsNAD = false;
+
+    if (!ats || length < 1) {
+        emit parsingError(QStringLiteral("ATS пуст или некорректной длины"));
+        return false;
+    }
+
+    // TL — первый байт, общая длина ATS
+    const int TL = ats[0];
+    if (TL < 1 || static_cast<size_t>(TL) > length) {
+        emit parsingError(QStringLiteral("ATS: некорректная длина TL"));
+        return false;
+    }
+
+    m_atrData.atsRaw = QVector<uint8_t>(ats, ats + TL);
+    m_atrData.hasATS = true;
+
+    if (TL < 2) {
+        // только TL — крайне редко, но считаем валидным
+        return true;
+    }
+
+    // T0 (или форматный байт ATS для 14443-4)
+    const uint8_t T0 = ats[1];
+    const int hbLen = T0 & 0x0F;         // исторические байты в ATS
+    const bool TA_present = (T0 & 0x10) != 0;
+    const bool TB_present = (T0 & 0x20) != 0;
+    const bool TC_present = (T0 & 0x40) != 0;
+    const bool TD_present = (T0 & 0x80) != 0;
+
+    m_atrData.ats_hbLen = hbLen;
+    m_atrData.ats_taPresent = TA_present;
+    m_atrData.ats_tbPresent = TB_present;
+    m_atrData.ats_tcPresent = TC_present;
+    m_atrData.ats_tdPresent = TD_present;
+
+    int idx = 2;
+
+    // TA(ATS) — FSCI (низкие 4 бита)
+    if (TA_present && idx < TL) {
+        uint8_t TA = ats[idx++];
+        int fsci = TA & 0x0F;
+        m_atrData.ats_fscPresent = true;
+        m_atrData.ats_fsc = atsFSCItoFSC(fsci);
+    }
+
+    // TB(ATS) — FWI (высокие 4 бита), SFGI (низкие 4 бита)
+    if (TB_present && idx < TL) {
+        uint8_t TB = ats[idx++];
+        m_atrData.ats_fwi = (TB >> 4) & 0x0F;
+        m_atrData.ats_sfgi = TB & 0x0F;
+    }
+
+    // TC(ATS) — поддержка NAD/CID
+    if (TC_present && idx < TL) {
+        uint8_t TC = ats[idx++];
+        m_atrData.ats_supportsCID = (TC & 0x02) != 0;
+        m_atrData.ats_supportsNAD = (TC & 0x01) != 0;
+    }
+
+    // TD(ATS) — редко используется, пропустим как необязательный байт
+    if (TD_present && idx < TL) {
+        ++idx; // зарезервировано или пропустить расширения
+    }
+
+    // Остаток — исторические байты ATS (если hbLen > 0)
+    // Убедимся, что места достаточно
+    if (hbLen > 0 && idx + hbLen <= TL) {
+        // Можно при необходимости сохранить отдельно — пока используем в atsRaw
+    }
+
+    return true;
 }
